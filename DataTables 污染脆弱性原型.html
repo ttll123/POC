@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>批量 DataTables 漏洞检测（HTML 汇总版）</title>
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<style>
+    body{padding:20px; font-family: Arial;}
+    .box{max-width:1000px; margin:0 auto;}
+    textarea{width:100%; height:200px; padding:10px; font-size:14px; margin:10px 0;}
+    button{padding:10px 20px; background:#007bff; color:#fff; border:none; border-radius:5px; cursor:pointer;}
+    .result-box{margin-top:20px; border:1px solid #ddd; padding:15px; border-radius:8px;}
+    table{width:100%; border-collapse: collapse; margin-top:10px; font-size:14px;}
+    table,td,th{border:1px solid #ccc; padding:8px; text-align:left;}
+    th{background:#f5f5f5;}
+    .red{color:red; font-weight:bold;}
+    .green{color:green; font-weight:bold;}
+    .gray{color:#666;}
+    .status{margin-top:10px; font-size:15px;}
+</style>
+</head>
+<body>
+<div class="box">
+    <h2>🔍 DataTables CVE-2020-28458 批量检测（HTML 汇总版）</h2>
+    <p>每行粘贴一个 JS 链接：</p>
+    <textarea id="jsList" placeholder="https://example.com/jquery.dataTables.js"></textarea>
+    <button id="startBtn">开始批量检测</button>
+    <div class="status" id="status"></div>
+    <div class="result-box" style="display:none;" id="resultBox">
+        <h3>📊 检测结果汇总</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>序号</th>
+                    <th>JS 链接</th>
+                    <th>版本</th>
+                    <th>检测结果</th>
+                </tr>
+            </thead>
+            <tbody id="resultTable"></tbody>
+        </table>
+        <div id="summary" style="margin-top:15px;font-size:15px;"></div>
+    </div>
+</div>
+
+<script>
+$(function(){
+    let results = [];
+    $('#startBtn').click(async function(){
+        const btn = $(this).prop('disabled',true).text('检测中...');
+        const status = $('#status').empty();
+        const table = $('#resultTable').empty();
+        $('#resultBox').hide();
+        results = [];
+
+        const urls = $('#jsList').val().split('\n').map(i=>i.trim()).filter(i=>i);
+        if(urls.length === 0){
+            status.html('<span class="red">请输入JS链接</span>');
+            btn.prop('disabled',false).text('开始批量检测');
+            return;
+        }
+
+        status.text(`共 ${urls.length} 个链接，开始检测...`);
+        let index = 0;
+
+        for(const url of urls){
+            index++;
+            status.text(`正在检测 ${index}/${urls.length}：${url}`);
+            let item = { url, version:'-', result:'-' };
+
+            try{
+                await $.getScript(url);
+                if(!$.fn.dataTable){
+                    item.result = '<span class="gray">非 DataTables</span>';
+                }else{
+                    item.version = $.fn.dataTable.version;
+                    try{
+                        $.fn.dataTable.ext.internal._fnSetObjectDataFn('__proto__.dt_test')({},'vuln');
+                        const polluted = {}.dt_test === 'vuln';
+                        delete Object.prototype.dt_test;
+                        if(polluted){
+                            item.result = '<span class="red">存在高危漏洞 CVE-2020-28458</span>';
+                        }else{
+                            item.result = '<span class="green">安全无漏洞</span>';
+                        }
+                    }catch(e){
+                        item.result = '<span class="green">安全无漏洞</span>';
+                    }
+                }
+            }catch(e){
+                item.result = '<span class="red">加载失败（跨域/无效链接）</span>';
+            }
+
+            results.push(item);
+        }
+
+        // 输出表格
+        results.forEach((item,i)=>{
+            $('#resultTable').append(`
+                <tr>
+                    <td>${i+1}</td>
+                    <td>${item.url}</td>
+                    <td>${item.version}</td>
+                    <td>${item.result}</td>
+                </tr>
+            `);
+        });
+
+        // 统计
+        const vuln = results.filter(i=>i.result.includes('高危漏洞')).length;
+        const safe = results.filter(i=>i.result.includes('安全无漏洞')).length;
+        const fail = results.filter(i=>i.result.includes('失败') || i.result.includes('非 DataTables')).length;
+
+        $('#summary').html(`
+            <b>检测统计：</b><br>
+            存在漏洞：${vuln} 个<br>
+            安全无漏洞：${safe} 个<br>
+            加载失败/无效：${fail} 个
+        `);
+
+        $('#resultBox').show();
+        status.text(`检测完成！共 ${urls.length} 个`);
+        btn.prop('disabled',false).text('开始批量检测');
+    });
+});
+</script>
+</body>
+</html>
